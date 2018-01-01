@@ -21,6 +21,7 @@ pub struct Temperature {
     id: String,
     update_interval: Duration,
     format: FormatTemplate,
+    args: Vec<String>,
 }
 
 #[derive(Deserialize, Debug, Default, Clone)]
@@ -37,6 +38,11 @@ pub struct TemperatureConfig {
     /// Format string for block display.
     #[serde(default = "TemperatureConfig::default_format")]
     pub format: String,
+
+    /// A vector of chip names to restrict temperature reads to, or `None` to
+    /// read from all chips. See `sensors --help` for possible chip formats.
+    #[serde(default = "TemperatureConfig::default_chips")]
+    pub chips: Option<Vec<String>>,
 }
 
 impl TemperatureConfig {
@@ -50,6 +56,10 @@ impl TemperatureConfig {
 
     fn default_format() -> String {
         "{average}° avg, {max}° max".to_owned()
+    }
+
+    fn default_chips() -> Option<Vec<String>> {
+        None
     }
 }
 
@@ -65,6 +75,14 @@ impl ConfigBlock for Temperature {
             collapsed: block_config.collapsed,
             format: FormatTemplate::from_string(block_config.format)
                 .block_error("temperature", "Invalid format string")?,
+            args: match block_config.chips {
+                None => vec!["-u".to_owned()],
+                Some(chips) => {
+                    let mut args = chips.clone();
+                    args.insert(0, "-u".to_owned());
+                    args
+                },
+            },
             id,
         })
     }
@@ -73,7 +91,7 @@ impl ConfigBlock for Temperature {
 impl Block for Temperature {
     fn update(&mut self) -> Result<Option<Duration>> {
         let output = Command::new("sensors")
-            .args(&["-u"])
+            .args(&self.args)
             .output()
             .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_owned())
             .unwrap_or_else(|e| e.description().to_owned());
